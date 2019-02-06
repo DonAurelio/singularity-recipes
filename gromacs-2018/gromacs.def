@@ -1,0 +1,87 @@
+# A Bootstrap that use the Docker Container Library
+Bootstrap: docker
+# Contatiner image
+From: nvidia/cuda:10.0-devel-ubuntu18.04
+
+# Store metadata with your containers add labels section
+%labels
+    Maintainer aa.vivas@uniandes.edu.co
+    Version 1.0
+
+# Use it to install container dependencies. You cannot copy files 
+# from the host to your container in this section, but you can of 
+# course download with commands like git clone and wget and curl.
+%post
+    apt-get -y update
+    apt-get install -y \
+        build-essential \
+        openssh-server \
+        cmake \
+        tar \
+        nano \
+        sudo \
+        git \
+        wget
+
+    # Instal OpenMPI 3.1.2
+    mkdir -p /tmp/mpi
+    cd /tmp/mpi
+
+    wget https://download.open-mpi.org/release/open-mpi/v3.1/openmpi-3.1.2.tar.gz
+    tar xfz openmpi-3.1.2.tar.gz
+    cd openmpi-3.1.2
+    ./configure --prefix=/usr/local
+    make
+    make install
+    # su -c "mkdir -p /home/mpiuser/.ssh/" mpiuser
+    echo 'StrictHostKeyChecking=no' >> /etc/ssh/sshd_config
+    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib/"
+
+    # Install Gromacs 2018
+    mkdir -p /tmp/gromacs
+    cd /tmp/gromacs
+
+    wget http://ftp.gromacs.org/pub/gromacs/gromacs-2018.tar.gz
+    tar xfz gromacs-2018.tar.gz
+    
+    cd gromacs-2018
+    mkdir -p build
+    cd build
+    cmake .. \
+        -DGMX_GPU=ON \
+        -DGMX_MPI=ON \
+        -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda \
+        -DGMX_BUILD_OWN_FFTW=ON \
+        -DCMAKE_CXX_COMPILER=/usr/local/bin/mpic++ \
+        -DCMAKE_C_COMPILER=/usr/local/bin/mpicc
+    make
+    # make check # The test fails because MPI is run as root when the image is build
+    make install
+    # source /usr/local/gromacs/bin/GMXRC
+
+# Place contaner environmet variables here
+%environment
+    export PATH="/usr/local/gromacs/bin/:$PATH"
+    export LD_LIBRARY_PATH="/usr/local/lib/:$LD_LIBRARY_PATH"
+
+# The %runscript is another scriptlet, but it does not get executed during bootstrapping. 
+# Instead it gets persisted within the container to a file called /singularity which is 
+# the execution driver when the container image is run (either via the singularity run 
+# command or via executing the container directly).
+
+# When the %runscript is executed, all options are passed along to the executing script 
+# at runtime, this means that you can (and should) manage argument processing from within 
+# your runscript. Here is an example of how to do that.
+%runscript
+    cd ~
+    git clone https://github.com/DonAurelio/gromacs-n10.git
+    cd gromacs-n10
+    exec ./run.sh $@
+
+# You may choose to add a %test section to your definition file. This section will be run at 
+# the very end of the boostrapping process and will give you a chance to validate the container 
+# during the bootstrap process. You can also execute this scriptlet through the container itself,
+# such that you can always test the validity of the container itself as you transport it to different hosts.
+# Extending on the above Open MPI %post, consider this example:
+#%test
+#   echo "The test section was executed"
